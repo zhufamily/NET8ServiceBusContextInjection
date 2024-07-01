@@ -1,7 +1,4 @@
-using Azure;
 using Azure.Messaging.ServiceBus;
-using Azure.Storage.Blobs;
-using Azure.Storage.Blobs.Models;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Azure.Functions.Worker;
@@ -18,8 +15,8 @@ namespace SampleCI
         {
             _logger = logger;
             _factory = factory;
-            _factory.CreateServiceBusClient("<your_namespace>", "<your_connection_string>");
-            _factory.CreateServiceBusSender("<your_namespace>", "<your_queue_or_topic_name>");
+            _factory.CreateServiceBusClient("<your_servicebus_namespace>", "<your_servicebus_namespace_connection_string>");
+            _factory.CreateServiceBusSender("<your_servicebus_namespace>", "<your_servicebus_queue_or_topic_name>");
         }
 
         [Function("Function1")]
@@ -33,7 +30,7 @@ namespace SampleCI
             ServiceBusMessage msg = new ServiceBusMessage();
             msg.ContentType = "application/json";
             msg.Body = BinaryData.FromString(content);
-            _factory.SendMessage("sgsldspcx", "playground", msg);
+            _factory.SendMessage("<your_servicebus_namespace>", "<your_servicebus_queue_or_topic_name>", msg);
             return new OkObjectResult("Good");
         }
     }
