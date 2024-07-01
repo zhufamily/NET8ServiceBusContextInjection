@@ -6,3 +6,5 @@ After we migrated our Azure functions from .NET 6 in-process mode to the latest 
    - Some properties on ServiceBusMessage itself, such as subject / label cannot be set somewhere else on JSON objects.
    - All messages will return all at once while a function is completed, you cannot call flush like in-process mode to send messages as needed.
 ## Approach
+After some research MS suggests context injection for output ServiceBus messages, but AFAIK cannot find any good sample codes or migration plans for how to map old .NET6 in-process output binding to new context injection.
+
