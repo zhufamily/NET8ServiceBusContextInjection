@@ -9,15 +9,50 @@ namespace SampleCI
         void SendMessage(string serviceBusNameSapce, string queueOrTopicName, ServiceBusMessage message);
     }
 
-    public class ServiceBusSenderFactory : IAsyncDisposable
+    public interface IServiceBusSenderFactory
     {
-        public ServiceBusSenderFactory(ServiceBusClient client)
+        ServiceBusSender CreateServiceBusSender(string queueOrTopicName);
+        void SendMessage(string queueOrTopicName, ServiceBusMessage message);
+    }
+
+    public class ServiceBusSenderFactory : IServiceBusSenderFactory, IAsyncDisposable
+    {
+        public ServiceBusSenderFactory(string serviceBusConnectionString)
         {
-            serviceBusClient = client;
+            ServiceBusClient = new ServiceBusClient(serviceBusConnectionString);
         }
-        public ServiceBusClient? serviceBusClient { get; set; }
-        public Dictionary<string, ServiceBusSender>? senders { get; set; } = new Dictionary<string, ServiceBusSender>();
+
+        public ServiceBusClient? ServiceBusClient { get; private set; }
+        public Dictionary<string, ServiceBusSender>? Senders { get; private set; } = new Dictionary<string, ServiceBusSender>();
         
+        public ServiceBusSender CreateServiceBusSender(string queueOrTopicName)
+        {
+            if (ServiceBusClient == null)
+                throw new Exception("Null reference -- ServiceBusClient is null");
+            if (Senders == null)
+                Senders = new Dictionary<string, ServiceBusSender>();
+
+            if (Senders.ContainsKey(queueOrTopicName))
+                return Senders[queueOrTopicName];
+
+            ServiceBusSender sender = ServiceBusClient.CreateSender(queueOrTopicName);
+            Senders.Add(queueOrTopicName, sender);
+            return Senders[queueOrTopicName];
+        }
+        
+        public void SendMessage(string queueOrTopicName, ServiceBusMessage message)
+        {
+            if (ServiceBusClient == null)
+                throw new Exception("Null reference -- ServiceBusClient is null");
+            if (Senders == null)
+                throw new Exception("Null reference -- ServiceBusSenders are null");
+            
+            if (!Senders.ContainsKey(queueOrTopicName))
+                throw new Exception("No sender -- Cannot find sender by queue or topic name");
+
+            Senders[queueOrTopicName].SendMessageAsync(message).GetAwaiter().GetResult();
+        }
+
         public async ValueTask DisposeAsync()
         {
             await DisposeAsyncCore().ConfigureAwait(false);
@@ -26,21 +61,21 @@ namespace SampleCI
 
         protected async ValueTask DisposeAsyncCore()
         {
-            if (serviceBusClient != null)
+            if (ServiceBusClient != null)
             {
-                await serviceBusClient.DisposeAsync().ConfigureAwait(false);
-                serviceBusClient = null;
+                await ServiceBusClient.DisposeAsync().ConfigureAwait(false);
+                ServiceBusClient = null;
             }
-            if (senders != null)
+            if (Senders != null)
             {
-                foreach (ServiceBusSender? serviceBusSender in senders.Values)
+                foreach (ServiceBusSender? serviceBusSender in Senders.Values)
                 {
                     if (serviceBusSender != null)
                     {
                         await serviceBusSender.DisposeAsync().ConfigureAwait(false);
                     }
                 }
-                senders = null;
+                Senders = null;
             }
         }
     }
@@ -56,19 +91,18 @@ namespace SampleCI
 
             if (clients.ContainsKey(serviceBusNameSpace))
             {
-                if (clients[serviceBusNameSpace].serviceBusClient != null)
-                    return clients[serviceBusNameSpace].serviceBusClient!;
+                if (clients[serviceBusNameSpace].ServiceBusClient != null)
+                    return clients[serviceBusNameSpace].ServiceBusClient!;
                 else
                 {
-                    clients[serviceBusNameSpace].serviceBusClient = new ServiceBusClient(serviceBusConnectionString);
-                    return clients[serviceBusNameSpace].serviceBusClient!;
+                    clients[serviceBusNameSpace] = new ServiceBusSenderFactory(serviceBusConnectionString);
+                    return clients[serviceBusNameSpace].ServiceBusClient!;
                 }
             }
             else
             {
-                ServiceBusClient client = new ServiceBusClient(serviceBusConnectionString);
-                clients.Add(serviceBusNameSpace, new ServiceBusSenderFactory(client));
-                return clients[serviceBusNameSpace].serviceBusClient!;
+                clients.Add(serviceBusNameSpace, new ServiceBusSenderFactory(serviceBusConnectionString));
+                return clients[serviceBusNameSpace].ServiceBusClient!;
             }
         }
 
@@ -76,37 +110,14 @@ namespace SampleCI
         {
             if (clients == null || !clients.ContainsKey(serviceBusNameSpace))
                 throw new Exception("Cannot find the Service Bus Client by the key!");
-            if (clients[serviceBusNameSpace].serviceBusClient == null)
-                throw new Exception("Null reference -- the Service Bus Client by the key!");
-
-            if (clients[serviceBusNameSpace].senders == null)
-            {
-                clients[serviceBusNameSpace].senders = new Dictionary<string, ServiceBusSender>();
-            }
-
-            if (clients[serviceBusNameSpace].senders!.ContainsKey(queueOrTopicName))
-            {
-                return clients[serviceBusNameSpace].senders![queueOrTopicName];
-            }
-            else
-            {
-                ServiceBusSender sender = clients[serviceBusNameSpace].serviceBusClient!.CreateSender(queueOrTopicName);
-                clients[serviceBusNameSpace].senders!.Add(queueOrTopicName, sender);
-                return clients[serviceBusNameSpace].senders![queueOrTopicName];
-            }
+            return clients[serviceBusNameSpace].CreateServiceBusSender(queueOrTopicName);  
         }
 
         public void SendMessage(string serviceBusNameSpace, string queueOrTopicName, ServiceBusMessage message)
         {
             if (clients == null || !clients.ContainsKey(serviceBusNameSpace))
                 throw new Exception("Cannot find the Service Bus Client by the key!");
-            if (clients[serviceBusNameSpace].serviceBusClient == null)
-                throw new Exception("Null reference -- the Service Bus Client by the key!");
-            if (clients[serviceBusNameSpace].senders == null || !clients[serviceBusNameSpace].senders!.ContainsKey(queueOrTopicName))
-                throw new Exception("Cannot find the Service Bus Sender by the queue or topic name!");
-
-            ServiceBusSender sender = clients[serviceBusNameSpace].senders![queueOrTopicName];
-            sender.SendMessageAsync(message).GetAwaiter().GetResult();
+            clients[serviceBusNameSpace].SendMessage(queueOrTopicName, message);
         }
 
         public async ValueTask DisposeAsync()
